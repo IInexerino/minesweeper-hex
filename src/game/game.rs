@@ -1,6 +1,6 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
-use bevy::{ app::{Plugin, Update}, asset::AssetServer, ecs::{entity::Entity, hierarchy::Children, observer::Trigger, resource::Resource, schedule::{IntoScheduleConfigs, SystemSet}, system::{Commands, Query, Res, ResMut, RunSystemOnce, SystemId}, world::World}, math::Vec3, picking::{events::{Click, Pointer}, mesh_picking::MeshPickingPlugin, pointer::PointerButton, Pickable}, sprite::Sprite, state::{app::AppExtStates, condition::in_state, state::{NextState, States}} };
+use bevy::{ app::{Plugin, Update}, asset::AssetServer, ecs::{entity::Entity, hierarchy::Children, observer::Trigger, resource::Resource, schedule::{IntoScheduleConfigs, SystemSet}, system::{Commands, Query, Res, RunSystemOnce}, world::World}, math::Vec3, picking::{events::{Click, Pointer}, pointer::PointerButton, Pickable}, sprite::Sprite, state::{app::AppExtStates, condition::in_state, state::{OnEnter, States}} };
 use bevy2d_utilities::grids::hexgrid::{build_change_hexgrid_textures_system, HexGrid, HexGridOrientation, HexTile, TileTextures};
 
 use crate::game::mines::{build_insert_new_minefieldtile_components_system, MinefieldTile, MinefieldTileMarker, TileMap};
@@ -9,15 +9,7 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut bevy::app::App) {
 
-        let mut game_systems: HashMap<String, SystemId> = HashMap::new();
-        game_systems.insert(
-            "hexgrid_init_system".into(),
-            app.register_system(hexgrid_init_system),
-        );
-        app.insert_resource(GameSystems(game_systems));
         app.init_resource::<TileMap>();
-        
-        app.add_plugins(MeshPickingPlugin);
         
         // STATES
         app.insert_state(AppState::MainMenu);
@@ -39,6 +31,9 @@ impl Plugin for GamePlugin {
             difficulty: GameDifficulty::Easy,
             grid: HexGrid::new(HexGridOrientation::Vertical, 10, 10, 85.),
         });
+
+        
+        app.add_systems(OnEnter(AppState::InGame), hexgrid_init);
     }
 }
 
@@ -61,9 +56,6 @@ pub struct GridSettings {
     pub grid: HexGrid,
     pub difficulty: GameDifficulty
 }
-
-#[derive(Resource)]
-pub struct GameSystems(pub HashMap<String, SystemId>);
 
 #[derive(Clone)]
 pub enum GameDifficulty {
@@ -214,12 +206,10 @@ fn add_picking_observers(grid_id: u64) -> impl FnMut(
     }
 }
 
-pub fn hexgrid_init_system(
-    mut next_app: ResMut<NextState<AppState>>,
+pub fn hexgrid_init(
     grid_settings: Res<GridSettings>,
     mut commands: Commands,
 ) {
-    next_app.set(AppState::InGame);
 
     let grid = grid_settings.grid.clone();
     let difficulty = grid_settings.difficulty.clone();

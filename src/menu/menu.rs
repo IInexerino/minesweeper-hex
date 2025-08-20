@@ -1,6 +1,6 @@
-use bevy::{app::{Plugin, Update}, ecs::{schedule::IntoScheduleConfigs, system::{Commands, Res}}, input::{keyboard::KeyCode, ButtonInput}};
+use bevy::{app::{Plugin, Update}, ecs::{schedule::IntoScheduleConfigs, system::{Res, ResMut}}, input::{keyboard::KeyCode, ButtonInput}, state::state::NextState};
 
-use crate::game::game::{GameSystems, MainMenuSet};
+use crate::game::game::{AppState, MainMenuSet};
 
 pub struct MenuPlugin;
 impl Plugin for MenuPlugin {
@@ -12,10 +12,10 @@ impl Plugin for MenuPlugin {
 
 pub fn main_menu_loop(
     keys: Res<ButtonInput<KeyCode>>,
-    game_systems: Res<GameSystems>,
-    mut commands: Commands
+    mut next_app: ResMut<NextState<AppState>>,
 ) {
+    // configure grid settings
     if keys.just_pressed(KeyCode::Digit7) {
-        commands.run_system(game_systems.0["hexgrid_init_system"]);
+        next_app.set(AppState::InGame);
     }
 }
