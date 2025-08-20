@@ -1,6 +1,6 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque};
 
-use bevy::{ app::{Plugin, Update}, asset::AssetServer, ecs::{entity::Entity, hierarchy::Children, observer::Trigger, resource::Resource, schedule::{IntoScheduleConfigs, SystemSet}, system::{Commands, Query, Res, RunSystemOnce}, world::World}, math::Vec3, picking::{events::{Click, Pointer}, pointer::PointerButton, Pickable}, sprite::Sprite, state::{app::AppExtStates, condition::in_state, state::{OnEnter, States}} };
+use bevy::{ app::{Plugin, Update}, asset::AssetServer, ecs::{entity::Entity, hierarchy::Children, observer::Trigger, resource::Resource, schedule::{IntoScheduleConfigs, SystemSet}, system::{Commands, Query, Res, RunSystemOnce}, world::World}, math::Vec3, picking::{ events::{Click, Pointer}, pointer::PointerButton, Pickable}, sprite::Sprite, state::{app::AppExtStates, condition::in_state, state::{OnEnter, States}} };
 use bevy2d_utilities::grids::hexgrid::{build_change_hexgrid_textures_system, HexGrid, HexGridOrientation, HexTile, TileTextures};
 
 use crate::game::mines::{build_insert_new_minefieldtile_components_system, MinefieldTile, MinefieldTileMarker, TileMap};
@@ -120,6 +120,62 @@ fn reveal_tile_floodfill(
     }
 }
 
+fn apply_click_to_tile(
+    target: Entity,
+    button: PointerButton,
+    asset_server: &Res<AssetServer>,
+    fill_query: &mut Query<(Entity, &HexTile, &mut MinefieldTile, &mut Sprite)>,
+    tilemap: &TileMap,
+    grid_settings: &GridSettings,
+) {
+    if let Ok((_e, _hex, mut minefield_tile, mut sprite)) = fill_query.get_mut(target) {
+        match button {
+            PointerButton::Primary => {
+                // ignore flagged tiles
+                if matches!(minefield_tile.marked, Some(MinefieldTileMarker::Flag)) {
+                    return;
+                }
+
+                if minefield_tile.hidden {
+                    if !minefield_tile.contains_mine {
+                        // unchanged: your flood fill
+                        reveal_tile_floodfill(
+                            target,
+                            fill_query,
+                            asset_server,
+                            &grid_settings.grid,
+                            tilemap,
+                        );
+                    } else {
+                        // game over
+                        sprite.image = asset_server.load("hex_revealed/hex_exploded.png");
+                        minefield_tile.unhide();
+                    }
+                }
+            }
+            PointerButton::Secondary => {
+                if minefield_tile.hidden {
+                    match minefield_tile.marked {
+                        None => {
+                            sprite.image = asset_server.load("hex_red_marker.png");
+                            minefield_tile.marked = Some(MinefieldTileMarker::Flag);
+                        }
+                        Some(MinefieldTileMarker::Flag) => {
+                            sprite.image = asset_server.load("hex_question_marker.png");
+                            minefield_tile.marked = Some(MinefieldTileMarker::QuestionMark);
+                        }
+                        Some(MinefieldTileMarker::QuestionMark) => {
+                            sprite.image = asset_server.load("hex.png");
+                            minefield_tile.marked = None;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 fn add_picking_observers(grid_id: u64) -> impl FnMut(
     Commands,
     Query<(&HexGrid, &Children)>
@@ -138,63 +194,21 @@ fn add_picking_observers(grid_id: u64) -> impl FnMut(
                         .insert((
                             Pickable::default(),
                         ))
-                        .observe( | 
-                            trigger: Trigger<Pointer<Click>>, 
-                            // ✂ removed: mut query: Query<(&mut MinefieldTile, &mut Sprite)>,
+                        .observe( |
+                            trigger: Trigger<Pointer<Click>>,
                             asset_server: Res<AssetServer>,
                             mut fill_query: Query<(Entity, &HexTile, &mut MinefieldTile, &mut Sprite)>,
                             tilemap: Res<TileMap>,
                             grid_settings: Res<GridSettings>,
                         | {
-                            // fetch the clicked entity using the SAME query
-                            let Ok((_e, _hex, mut minefield_tile, mut sprite)) = 
-                                fill_query.get_mut(trigger.target()) 
-                            else { return; };
-
-                            match trigger.event().event.button {
-                                PointerButton::Primary => {
-                                    // (optional) ignore flagged tiles
-                                    if matches!(minefield_tile.marked, Some(MinefieldTileMarker::Flag)) {
-                                        return;
-                                    }
-
-                                    if minefield_tile.hidden {
-                                        if !minefield_tile.contains_mine {
-                                            // we can flood-fill unconditionally; it will reveal just this one if n>0
-                                            reveal_tile_floodfill(
-                                                trigger.target(),
-                                                &mut fill_query,
-                                                &asset_server,
-                                                &grid_settings.grid,
-                                                &tilemap,
-                                            );
-                                        } else {
-                                            // game over
-                                            sprite.image = asset_server.load("hex_revealed/hex_exploded.png");
-                                            minefield_tile.unhide();
-                                        }
-                                    }
-                                }
-                                PointerButton::Secondary => {
-                                    if minefield_tile.hidden {
-                                        match minefield_tile.marked {
-                                            None => {
-                                                sprite.image = asset_server.load("hex_red_marker.png");
-                                                minefield_tile.marked = Some(MinefieldTileMarker::Flag);
-                                            }
-                                            Some(MinefieldTileMarker::Flag) => {
-                                                sprite.image = asset_server.load("hex_question_marker.png");
-                                                minefield_tile.marked = Some(MinefieldTileMarker::QuestionMark);
-                                            }
-                                            Some(MinefieldTileMarker::QuestionMark) => {
-                                                sprite.image = asset_server.load("hex.png");
-                                                minefield_tile.marked = None;
-                                            }
-                                        }
-                                    }
-                                }
-                                _ => {}
-                            }
+                            apply_click_to_tile(
+                                trigger.target(),
+                                trigger.event().event.button,
+                                &asset_server,
+                                &mut fill_query,
+                                &tilemap,
+                                &grid_settings,
+                            );
                         });
                 } 
             break
@@ -244,6 +258,28 @@ pub fn hexgrid_init(
 
         let _ = world.run_system_once(add_picking_observers(grid.id));
 
-        });
+        let _ = world.run_system_once(reveal_one_init);
 
+    });
+
+}
+
+fn reveal_one_init(
+    asset_server: Res<AssetServer>,
+    mut fill_query: Query<(Entity, &HexTile, &mut MinefieldTile, &mut Sprite)>,
+    tilemap: Res<TileMap>,
+    grid_settings: Res<GridSettings>,
+) {
+
+    let entity = fill_query.iter().find( | (_, _, minefield, _) | minefield.number_of_neighbor_mines == Some(0))
+    .map(| (entity, _, _, _) | entity).unwrap();
+
+    apply_click_to_tile(
+        entity,
+        PointerButton::Primary, // or Secondary
+        &asset_server,
+        &mut fill_query,
+        &tilemap,
+        &grid_settings,
+    );
 }
