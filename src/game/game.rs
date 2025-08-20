@@ -271,15 +271,18 @@ fn reveal_one_init(
     grid_settings: Res<GridSettings>,
 ) {
 
-    let entity = fill_query.iter().find( | (_, _, minefield, _) | minefield.number_of_neighbor_mines == Some(0))
-    .map(| (entity, _, _, _) | entity).unwrap();
+    if let Some((entity, _, _, _)) = fill_query.iter().find( | (_, _, minetile, _) | minetile.number_of_neighbor_mines == Some(0) ) {
+        apply_click_to_tile(
+            entity,
+            PointerButton::Primary, // or Secondary
+            &asset_server,
+            &mut fill_query,
+            &tilemap,
+            &grid_settings,
+        );
+    } else {
+        eprintln!("A free square was not found");
 
-    apply_click_to_tile(
-        entity,
-        PointerButton::Primary, // or Secondary
-        &asset_server,
-        &mut fill_query,
-        &tilemap,
-        &grid_settings,
-    );
+    }
+
 }
